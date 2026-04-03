@@ -68,13 +68,13 @@ function workoutsThisWeek(workouts) {
 
 // ─── Active session helpers ────────────────────────────────────────────────────
 function resumeSessionFromStorage() {
-  const raw = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION)
-  if (!raw) return null
   try {
+    const raw = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION)
+    if (!raw) return null
     const session = JSON.parse(raw)
     // If workout was already completed or skipped, clear it
     if (session.workout && (session.workout.status === 'completed' || session.workout.status === 'skipped')) {
-      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION)
+      try { localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION) } catch {}
       return null
     }
     return session

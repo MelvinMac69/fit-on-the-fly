@@ -7,10 +7,20 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-html, body, #root {
-  height: 100%;
+html {
+  min-height: 100vh;
+  background-color: #0D0D0F;
+}
+
+body {
+  min-height: 100vh;
   margin: 0;
   padding: 0;
+  background-color: #0D0D0F;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 body {

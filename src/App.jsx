@@ -1,7 +1,8 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useStore } from './store/useStore.js'
 import { BottomNav } from './components/BottomNav.jsx'
+import { ErrorBoundary } from './components/ErrorBoundary.jsx'
 import Onboarding from './screens/Onboarding.jsx'
 import Home from './screens/Home.jsx'
 import WorkoutDetail from './screens/WorkoutDetail.jsx'
@@ -29,52 +30,54 @@ export default function App() {
   const user = useStore(s => s.user)
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route
-          path="/"
-          element={user ? <Navigate to="/home" replace /> : <Navigate to="/onboarding" replace />}
-        />
-        <Route path="/onboarding" element={<Onboarding />} />
+    <ErrorBoundary>
+      <HashRouter>
+        <Routes>
+          <Route
+            path="/"
+            element={user ? <Navigate to="/home" replace /> : <Navigate to="/onboarding" replace />}
+          />
+          <Route path="/onboarding" element={<Onboarding />} />
 
-        <Route
-          path="/home"
-          element={
-            <ProtectedRoute>
-              <AppShell><Home /></AppShell>
-            </ProtectedRoute>
-          }
-        />
+          <Route
+            path="/home"
+            element={
+              <ProtectedRoute>
+                <AppShell><Home /></AppShell>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/workout/:id"
-          element={
-            <ProtectedRoute>
-              <WorkoutDetail />
-            </ProtectedRoute>
-          }
-        />
+          <Route
+            path="/workout/:id"
+            element={
+              <ProtectedRoute>
+                <WorkoutDetail />
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/progress"
-          element={
-            <ProtectedRoute>
-              <AppShell><Progress /></AppShell>
-            </ProtectedRoute>
-          }
-        />
+          <Route
+            path="/progress"
+            element={
+              <ProtectedRoute>
+                <AppShell><Progress /></AppShell>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <AppShell><Settings /></AppShell>
-            </ProtectedRoute>
-          }
-        />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <AppShell><Settings /></AppShell>
+              </ProtectedRoute>
+            }
+          />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </HashRouter>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </HashRouter>
+    </ErrorBoundary>
   )
 }

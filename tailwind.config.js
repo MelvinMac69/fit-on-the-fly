@@ -23,8 +23,8 @@ export default {
         energy_high: '#22C55E',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        mono: ['ui-monospace', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
     },
   },
