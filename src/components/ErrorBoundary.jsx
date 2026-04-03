@@ -3,19 +3,23 @@ import React, { Component } from 'react'
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props)
-    this.state = { hasError: false, error: null }
+    this.state = { hasError: false, error: null, errorInfo: null }
   }
 
   static getDerivedStateFromError(error) {
     return { hasError: true, error }
   }
 
-  componentDidCatch(error, info) {
-    console.error('[Fit-On-The-Fly] Render error:', error, info)
+  componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo })
+    // Log to console for external monitoring
+    console.error('[Fit-On-The-Fly] Render error:', error, errorInfo)
   }
 
   render() {
     if (this.state.hasError) {
+      const { error, errorInfo } = this.state
+
       return (
         <div style={{
           minHeight: '100vh',
@@ -33,40 +37,78 @@ export class ErrorBoundary extends Component {
           <h1 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px' }}>
             Something went wrong
           </h1>
-          <p style={{ fontSize: '14px', color: '#A1A1AA', marginBottom: '24px', maxWidth: '320px' }}>
-            The app encountered an error loading. Try refreshing the page.
+          <p style={{ fontSize: '14px', color: '#A1A1AA', marginBottom: '24px', maxWidth: '360px' }}>
+            The app encountered an error. This is usually caused by old cached data.
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              backgroundColor: '#F97316',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              padding: '12px 24px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer',
-            }}
-          >
-            Reload App
-          </button>
-          {process.env.NODE_ENV === 'development' && this.state.error && (
-            <pre style={{
-              marginTop: '24px',
-              padding: '12px',
+
+          {/* Always show error details — critical for debugging */}
+          <div style={{
+            width: '100%',
+            maxWidth: '600px',
+            marginBottom: '24px',
+          }}>
+            <div style={{
               backgroundColor: '#18181B',
-              borderRadius: '6px',
-              fontSize: '11px',
-              color: '#EF4444',
+              border: '1px solid #27272A',
+              borderRadius: '8px',
+              padding: '16px',
               textAlign: 'left',
-              overflow: 'auto',
-              maxWidth: '100%',
-              maxHeight: '200px',
             }}>
-              {this.state.error.toString()}
-            </pre>
-          )}
+              <div style={{ fontSize: '11px', color: '#EF4444', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                <strong>Error:</strong> {error?.toString()}
+              </div>
+              {errorInfo?.componentStack && (
+                <pre style={{
+                  marginTop: '12px',
+                  fontSize: '10px',
+                  color: '#A1A1AA',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  maxHeight: '200px',
+                  overflow: 'auto',
+                }}>
+                  {errorInfo.componentStack}
+                </pre>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                backgroundColor: '#F97316',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '12px 24px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              Reload App
+            </button>
+            <button
+              onClick={() => {
+                localStorage.clear()
+                window.location.reload()
+              }}
+              style={{
+                backgroundColor: 'transparent',
+                color: '#EF4444',
+                border: '1px solid #EF4444',
+                borderRadius: '8px',
+                padding: '12px 24px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+              }}
+            >
+              Clear All Data & Reload
+            </button>
+          </div>
         </div>
       )
     }
