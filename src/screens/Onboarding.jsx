@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { Button } from '../components/Button.jsx'
@@ -40,11 +40,17 @@ export default function Onboarding() {
         preferredStyle: style,
         accountabilityTone: 'coach',
       })
-      navigate('/home')
     } else {
       setStep(s => s + 1)
     }
   }
+
+  // Navigate after user is set — useEffect ensures re-render completes first
+  useEffect(() => {
+    if (step === 3 && user?.name === name.trim() && user?.goal === goal) {
+      navigate('/home')
+    }
+  }, [step, user])
 
   const currentStep = STEPS.find(s => s.id === step)
 
