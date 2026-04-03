@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useStore } from './store/useStore.js'
 import { BottomNav } from './components/BottomNav.jsx'
 import Onboarding from './screens/Onboarding.jsx'
@@ -29,7 +29,7 @@ export default function App() {
   const user = useStore(s => s.user)
 
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         <Route
           path="/"
@@ -75,6 +75,6 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   )
 }
