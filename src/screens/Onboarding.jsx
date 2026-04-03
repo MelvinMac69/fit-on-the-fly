@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { Button } from '../components/Button.jsx'
@@ -32,7 +32,10 @@ export default function Onboarding() {
   }
 
   const handleNext = () => {
-    if (step === 3) {
+    if (step < 3) {
+      setStep(s => s + 1)
+    } else {
+      // Save user to store — navigation happens after render via state update
       setUser({
         name: name.trim(),
         goal,
@@ -40,17 +43,12 @@ export default function Onboarding() {
         preferredStyle: style,
         accountabilityTone: 'coach',
       })
-    } else {
-      setStep(s => s + 1)
-    }
-  }
-
-  // Navigate after user is set — useEffect ensures re-render completes first
-  useEffect(() => {
-    if (step === 3 && user?.name === name.trim() && user?.goal === goal) {
+      // Zustand is synchronous — after setUser the store is updated.
+      // On next render, App's useUserState() will see the user and redirect.
+      // We navigate immediately to be safe.
       navigate('/home')
     }
-  }, [step, user])
+  }
 
   const currentStep = STEPS.find(s => s.id === step)
 
