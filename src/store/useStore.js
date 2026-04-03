@@ -5,6 +5,7 @@ const STORAGE_KEYS = {
   USER: 'fotf_user',
   WORKOUTS: 'fotf_workouts',
   SETTINGS: 'fotf_settings',
+  ACTIVE_SESSION: 'fotf_active_session',
 }
 
 function loadFromStorage(key, fallback) {
@@ -24,7 +25,9 @@ function saveToStorage(key, value) {
   }
 }
 
-const today = () => new Date().toISOString().split('T')[0]
+function today() {
+  return new Date().toISOString().split('T')[0]
+}
 
 function countStreak(workouts) {
   const sorted = [...workouts]
@@ -34,7 +37,7 @@ function countStreak(workouts) {
   if (sorted.length === 0) return 0
 
   let streak = 0
-  let checkDate = new Date(today())
+  let checkDate = new Date()
   checkDate.setHours(0, 0, 0, 0)
 
   for (const w of sorted) {
@@ -44,7 +47,6 @@ function countStreak(workouts) {
 
     if (diffDays === 0 || diffDays === 1) {
       streak++
-      checkDate = wDate
       checkDate.setDate(checkDate.getDate() - 1)
     } else {
       break
@@ -58,15 +60,31 @@ function workoutsThisWeek(workouts) {
   const startOfWeek = new Date(now)
   startOfWeek.setDate(now.getDate() - now.getDay())
   startOfWeek.setHours(0, 0, 0, 0)
-
   return workouts.filter(w => {
     const d = new Date(w.date)
     return w.status === 'completed' && d >= startOfWeek
   }).length
 }
 
+// ─── Active session helpers ────────────────────────────────────────────────────
+function resumeSessionFromStorage() {
+  const raw = localStorage.getItem(STORAGE_KEYS.ACTIVE_SESSION)
+  if (!raw) return null
+  try {
+    const session = JSON.parse(raw)
+    // If workout was already completed or skipped, clear it
+    if (session.workout && (session.workout.status === 'completed' || session.workout.status === 'skipped')) {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION)
+      return null
+    }
+    return session
+  } catch {
+    return null
+  }
+}
+
 export const useStore = create((set, get) => ({
-  // === User ===
+  // ─── User ─────────────────────────────────────────────────────────────────
   user: loadFromStorage(STORAGE_KEYS.USER, null),
 
   setUser: (userData) => {
@@ -89,7 +107,7 @@ export const useStore = create((set, get) => ({
 
   isOnboarded: () => !!get().user,
 
-  // === Workouts ===
+  // ─── Workouts ─────────────────────────────────────────────────────────────
   workouts: loadFromStorage(STORAGE_KEYS.WORKOUTS, []),
 
   addWorkout: (workoutData) => {
@@ -104,6 +122,7 @@ export const useStore = create((set, get) => ({
     const workouts = [workout, ...get().workouts]
     saveToStorage(STORAGE_KEYS.WORKOUTS, workouts)
     set({ workouts, currentWorkout: workout })
+    return workout
   },
 
   logWorkout: (workoutId, status, note = null) => {
@@ -120,9 +139,19 @@ export const useStore = create((set, get) => ({
     set({ workouts })
   },
 
-  getCurrentWorkout: () => get().currentWorkout || null,
+  // ─── Stats ───────────────────────────────────────────────────────────────
+  getStreak: () => countStreak(get().workouts),
+  getWorkoutsThisWeek: () => workoutsThisWeek(get().workouts),
+  getTotalWorkouts: () => get().workouts.filter(w => w.status === 'completed').length,
 
-  // === Current Workout (in-session) ===
+  getRecentWorkouts: (limit = 10) => {
+    return [...get().workouts]
+      .filter(w => w.status !== 'generated')
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, limit)
+  },
+
+  // ─── Generate today ───────────────────────────────────────────────────────
   currentWorkout: null,
 
   generateTodayWorkout: ({ timeAvailable, equipment, energy }) => {
@@ -135,6 +164,7 @@ export const useStore = create((set, get) => ({
       energy,
       fitnessLevel: user.fitnessLevel,
       goal: user.goal,
+      workouts: get().workouts,
     })
 
     const workout = {
@@ -157,19 +187,91 @@ export const useStore = create((set, get) => ({
 
   clearCurrentWorkout: () => set({ currentWorkout: null }),
 
-  // === Stats ===
-  getStreak: () => countStreak(get().workouts),
-  getWorkoutsThisWeek: () => workoutsThisWeek(get().workouts),
-  getTotalWorkouts: () => get().workouts.filter(w => w.status === 'completed').length,
+  // ─── Active Workout Session ────────────────────────────────────────────────
+  // Active session state:
+  // {
+  //   workoutId: string,
+  //   startedAt: ISO string,
+  //   elapsedSeconds: number,
+  //   completedExerciseIds: string[],
+  //   currentExerciseIndex: number,
+  //   inProgressNote: string,
+  // }
+  activeSession: resumeSessionFromStorage(),
 
-  getRecentWorkouts: (limit = 10) => {
-    return [...get().workouts]
-      .filter(w => w.status !== 'generated')
-      .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, limit)
+  startWorkout: (workoutId) => {
+    const session = {
+      workoutId,
+      startedAt: new Date().toISOString(),
+      elapsedSeconds: 0,
+      completedExerciseIds: [],
+      currentExerciseIndex: 0,
+      inProgressNote: '',
+    }
+    saveToStorage(STORAGE_KEYS.ACTIVE_SESSION, session)
+    set({ activeSession: session })
   },
 
-  // === Settings ===
+  tickTimer: (seconds) => {
+    // Called every second from the timer interval
+    const session = get().activeSession
+    if (!session) return
+    const updated = { ...session, elapsedSeconds: seconds }
+    saveToStorage(STORAGE_KEYS.ACTIVE_SESSION, updated)
+    set({ activeSession: updated })
+  },
+
+  completeExercise: (exerciseId) => {
+    const session = get().activeSession
+    if (!session) return
+    if (!session.completedExerciseIds.includes(exerciseId)) {
+      const updated = {
+        ...session,
+        completedExerciseIds: [...session.completedExerciseIds, exerciseId],
+        currentExerciseIndex: session.currentExerciseIndex + 1,
+      }
+      saveToStorage(STORAGE_KEYS.ACTIVE_SESSION, updated)
+      set({ activeSession: updated })
+    }
+  },
+
+  setCurrentExerciseIndex: (index) => {
+    const session = get().activeSession
+    if (!session) return
+    const updated = { ...session, currentExerciseIndex: index }
+    saveToStorage(STORAGE_KEYS.ACTIVE_SESSION, updated)
+    set({ activeSession: updated })
+  },
+
+  updateSessionNote: (note) => {
+    const session = get().activeSession
+    if (!session) return
+    const updated = { ...session, inProgressNote: note }
+    saveToStorage(STORAGE_KEYS.ACTIVE_SESSION, updated)
+    set({ activeSession: updated })
+  },
+
+  finishWorkout: (workoutId, status, note = null) => {
+    const workouts = get().workouts.map(w => {
+      if (w.id !== workoutId) return w
+      return {
+        ...w,
+        status,
+        note: note || get().activeSession?.inProgressNote || null,
+        completedAt: status === 'completed' ? new Date().toISOString() : null,
+      }
+    })
+    saveToStorage(STORAGE_KEYS.WORKOUTS, workouts)
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION)
+    set({ workouts, activeSession: null, currentWorkout: null })
+  },
+
+  abandonSession: () => {
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION)
+    set({ activeSession: null })
+  },
+
+  // ─── Settings ─────────────────────────────────────────────────────────────
   settings: loadFromStorage(STORAGE_KEYS.SETTINGS, {
     reminderEnabled: false,
     reminderTime: '07:00',
@@ -181,11 +283,18 @@ export const useStore = create((set, get) => ({
     set({ settings })
   },
 
-  // === Reset ===
+  // ─── Reset ───────────────────────────────────────────────────────────────
   resetAllData: () => {
     localStorage.removeItem(STORAGE_KEYS.USER)
     localStorage.removeItem(STORAGE_KEYS.WORKOUTS)
     localStorage.removeItem(STORAGE_KEYS.SETTINGS)
-    set({ user: null, workouts: [], currentWorkout: null, settings: { reminderEnabled: false, reminderTime: '07:00' } })
+    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION)
+    set({
+      user: null,
+      workouts: [],
+      currentWorkout: null,
+      activeSession: null,
+      settings: { reminderEnabled: false, reminderTime: '07:00' },
+    })
   },
 }))

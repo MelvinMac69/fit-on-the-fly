@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Zap, Clock, Dumbbell, Flame, ChevronDown, ChevronUp, CheckCircle } from 'lucide-react'
+import { Zap, Clock, Dumbbell, Flame, ChevronRight, CheckCircle, Play } from 'lucide-react'
 import { useStore } from '../store/useStore.js'
 import { Button } from '../components/Button.jsx'
 import { PillSelectorRow } from '../components/PillSelector.jsx'
@@ -9,11 +9,13 @@ import {
   TIME_OPTIONS,
   EQUIPMENT_TYPES,
   EQUIPMENT_LABELS,
-  ENERGY_LEVELS,
 } from '../data/exercises.js'
 
 const timeOptions = TIME_OPTIONS.map(t => ({ value: t, label: `${t} min` }))
-const equipmentOptions = Object.entries(EQUIPMENT_TYPES).map(([value, label]) => ({ value, label: EQUIPMENT_LABELS[value] }))
+const equipmentOptions = Object.entries(EQUIPMENT_TYPES).map(([key, value]) => ({
+  value,
+  label: EQUIPMENT_LABELS[value],
+}))
 const energyOptions = [
   { value: 'low', label: '🔵 Low' },
   { value: 'medium', label: '🟠 Medium' },
@@ -23,7 +25,7 @@ const energyOptions = [
 export default function Home() {
   const navigate = useNavigate()
   const store = useStore()
-  const { user, currentWorkout, generateTodayWorkout } = store
+  const { user, generateTodayWorkout } = store
 
   const [contextOpen, setContextOpen] = useState(false)
   const [timeAvailable, setTimeAvailable] = useState(null)
@@ -36,12 +38,17 @@ export default function Home() {
   const recentWorkouts = store.getRecentWorkouts(3)
   const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
+  // Active session — show banner if there's a workout in progress
+  const activeSession = store.activeSession
+  const activeWorkout = activeSession
+    ? store.workouts.find(w => w.id === activeSession.workoutId)
+    : null
+
   const canGenerate = timeAvailable && equipment && energy
 
   const handleGenerate = async () => {
     if (!canGenerate) return
     setGenerating(true)
-    // Small delay for feedback
     await new Promise(r => setTimeout(r, 400))
     const workout = generateTodayWorkout({ timeAvailable, equipment, energy })
     setGenerating(false)
@@ -51,8 +58,8 @@ export default function Home() {
   }
 
   const handleContinueWorkout = () => {
-    if (currentWorkout) {
-      navigate(`/workout/${currentWorkout.id}`)
+    if (activeWorkout) {
+      navigate(`/workout/${activeWorkout.id}`)
     }
   }
 
@@ -67,56 +74,68 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* Streak Hero */}
-        <Card className="p-5 mb-4 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/4" />
-          <div className="relative">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center">
-                <Flame className="text-primary" size={20} />
-              </div>
-              <div>
-                <div className="text-xl font-bold font-mono text-text-primary">
-                  {streak} day streak
-                </div>
-                <div className="text-xs text-text-muted">Keep it going</div>
-              </div>
-            </div>
-            <div className="flex gap-4">
-              <StatBlock value={workoutsThisWeek} label="This week" />
-              <StatBlock value={store.getRecentWorkouts().length} label="Total logged" />
-            </div>
-          </div>
-        </Card>
-
-        {/* Continue / Start CTA */}
-        {currentWorkout && currentWorkout.status === 'generated' && (
-          <Card className="p-4 mb-4 border-primary/30" onClick={handleContinueWorkout}>
+        {/* Active Session Banner */}
+        {activeWorkout && (
+          <Card
+            className="p-4 mb-4 border-primary/40 bg-primary/5 cursor-pointer hover:bg-primary/10 transition-colors"
+            onClick={handleContinueWorkout}
+          >
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium text-text-primary">Today's workout ready</div>
-                <div className="text-xs text-text-muted mt-0.5">{currentWorkout.generatedWorkout?.name}</div>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
+                  <Play className="text-primary ml-0.5" size={14} />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-primary">Workout in Progress</div>
+                  <div className="text-xs text-text-muted mt-0.5">
+                    {activeWorkout.generatedWorkout?.name} • Continue where you left off
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-1 text-primary text-sm font-medium">
-                Continue <ChevronRight />
+              <ChevronRight className="text-primary shrink-0" size={18} />
+            </div>
+          </Card>
+        )}
+
+        {/* Streak Hero */}
+        {!activeWorkout && (
+          <Card className="p-5 mb-4 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -translate-y-1/2 translate-x-1/4" />
+            <div className="relative">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center">
+                  <Flame className="text-primary" size={20} />
+                </div>
+                <div>
+                  <div className="text-xl font-bold font-mono text-text-primary">
+                    {streak} day streak
+                  </div>
+                  <div className="text-xs text-text-muted">Keep it going</div>
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <StatBlock value={workoutsThisWeek} label="This week" />
+                <StatBlock value={store.getTotalWorkouts()} label="Total logged" />
               </div>
             </div>
           </Card>
         )}
 
         {/* Generate Button */}
-        <Button
-          size="lg"
-          className="w-full mb-4"
-          onClick={() => setContextOpen(true)}
-        >
-          <Zap className="mr-2" size={18} />
-          Generate Today's Workout
-        </Button>
+        {!activeWorkout && (
+          <Button
+            size="lg"
+            className="w-full mb-4"
+            onClick={() => setContextOpen(true)}
+          >
+            <Zap className="mr-2" size={18} />
+            Generate Today's Workout
+          </Button>
+        )}
 
         {/* Daily Context Panel */}
-        {contextOpen && (
-          <Card className="p-5 mb-4 animate-[fadeIn_200ms_ease-out]">
+        {contextOpen && !activeWorkout && (
+          <Card className="p-5 mb-4">
             <div className="space-y-5">
               {/* Time */}
               <div>
@@ -179,17 +198,28 @@ export default function Home() {
         )}
 
         {/* Recent Workouts */}
-        {recentWorkouts.length > 0 && (
+        {!activeWorkout && recentWorkouts.length > 0 && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-text-secondary uppercase tracking-wider">Recent</h2>
             </div>
             <div className="space-y-2">
               {recentWorkouts.map(w => (
-                <Card key={w.id} className="p-3 flex items-center justify-between">
+                <Card
+                  key={w.id}
+                  className="p-3 flex items-center justify-between"
+                  onClick={() => navigate(`/workout/${w.id}`)}
+                >
                   <div>
-                    <div className="text-sm font-medium text-text-primary">{w.generatedWorkout?.name || 'Workout'}</div>
-                    <div className="text-xs text-text-muted mt-0.5">{w.date}</div>
+                    <div className="text-sm font-medium text-text-primary">
+                      {w.generatedWorkout?.name || 'Workout'}
+                    </div>
+                    <div className="text-xs text-text-muted mt-0.5">
+                      {w.date}
+                      {w.generatedWorkout?.splitType && (
+                        <span className="ml-1 capitalize">• {w.generatedWorkout.splitType}</span>
+                      )}
+                    </div>
                   </div>
                   {w.status === 'completed' && (
                     <CheckCircle className="text-success" size={16} />
@@ -204,13 +234,5 @@ export default function Home() {
         )}
       </div>
     </div>
-  )
-}
-
-function ChevronRight() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
   )
 }
