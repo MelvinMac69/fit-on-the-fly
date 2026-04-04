@@ -6,7 +6,7 @@ import { Button } from '../components/Button.jsx'
 import { ConfirmModal, NoteModal } from '../components/Modal.jsx'
 import {
   Clock, Dumbbell, Zap, CheckCircle, SkipForward, MessageSquare,
-  Play, Pause, Square, ChevronRight, Timer, Trophy,
+  Play, Pause, Square, ChevronRight, Timer, Trophy, AlertTriangle,
 } from 'lucide-react'
 
 const ENERGY_BADGE = {
@@ -28,6 +28,20 @@ function formatTimeVerbose(totalSeconds) {
   if (hrs > 0) return `${hrs}h ${mins}m`
   if (mins > 0) return `${mins}m ${secs}s`
   return `${secs}s`
+}
+
+// ─── Advisory Toast ────────────────────────────────────────────────────────────
+function AdvisoryToast({ message, onClose }) {
+  useEffect(() => {
+    const t = setTimeout(onClose, 3000)
+    return () => clearTimeout(t)
+  }, [onClose])
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-warning/20 border border-warning/40 text-warning rounded-lg px-4 py-3 flex items-center gap-3 max-w-xs">
+      <AlertTriangle size={16} className="shrink-0" />
+      <p className="text-xs font-medium leading-relaxed">{message}</p>
+    </div>
+  )
 }
 
 // ─── Rest Timer Component ───────────────────────────────────────────────────────
@@ -109,13 +123,17 @@ function RestTimer({ restSeconds, onSkip, onRestart }) {
 }
 
 // ─── Set Row Component ─────────────────────────────────────────────────────────
-function SetRow({ setNumber, set, exercise, isActive, onComplete, onLog, lastPerformance }) {
+function SetRow({ setNumber, set, exercise, isActive, isLocked, isWorkingSet, onComplete, onLog, lastPerformance, onLockedAttempt }) {
   const [showInputs, setShowInputs] = useState(false)
   const [weight, setWeight] = useState(set.weight || '')
   const [reps, setReps] = useState(set.reps || '')
   const [completed, setCompleted] = useState(set.completed || false)
 
-  const handleComplete = () => {
+  const handleCheckClick = () => {
+    if (isLocked) {
+      onLockedAttempt()
+      return
+    }
     const w = weight !== '' ? Number(weight) : null
     const r = reps !== '' ? Number(reps) : null
     setCompleted(true)
@@ -123,8 +141,16 @@ function SetRow({ setNumber, set, exercise, isActive, onComplete, onLog, lastPer
     onComplete()
   }
 
+  const handleLogClick = () => {
+    if (isLocked) {
+      onLockedAttempt()
+      return
+    }
+    setShowInputs(s => !s)
+  }
+
   return (
-    <div className={`border-b border-border last:border-0 ${completed ? 'opacity-60' : ''}`}>
+    <div className={`border-b border-border last:border-0 ${completed ? 'opacity-60' : ''} ${isLocked ? 'opacity-75' : ''}`}>
       <div className="flex items-center gap-3 py-2.5 px-1">
         {/* Set number */}
         <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
@@ -151,14 +177,18 @@ function SetRow({ setNumber, set, exercise, isActive, onComplete, onLog, lastPer
         {!completed ? (
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setShowInputs(s => !s)}
+              onClick={handleLogClick}
               className="text-xs text-text-muted hover:text-primary transition-colors px-2 py-1 border border-border rounded-md"
             >
               Log
             </button>
             <button
-              onClick={handleComplete}
-              className="w-8 h-8 rounded-full bg-success/20 text-success flex items-center justify-center hover:bg-success/30 transition-colors"
+              onClick={handleCheckClick}
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                isLocked
+                  ? 'bg-border/50 text-text-muted cursor-not-allowed'
+                  : 'bg-success/20 text-success hover:bg-success/30'
+              }`}
             >
               <CheckCircle size={14} />
             </button>
@@ -197,7 +227,7 @@ function SetRow({ setNumber, set, exercise, isActive, onComplete, onLog, lastPer
             />
           </div>
           <button
-            onClick={handleComplete}
+            onClick={handleCheckClick}
             className="col-span-2 w-full bg-success text-white rounded-md py-2 text-sm font-semibold hover:bg-success/90 transition-colors"
           >
             Done — Next Set
@@ -209,7 +239,7 @@ function SetRow({ setNumber, set, exercise, isActive, onComplete, onLog, lastPer
 }
 
 // ─── Exercise Card Component ───────────────────────────────────────────────────
-function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle }) {
+function ExerciseCard({ exercise, workoutId, isActive, isLocked, isWorkingSet, onActivate, sectionTitle }) {
   const { logExerciseSet, getExerciseLog, getLastPerformance } = useStore()
   const [expanded, setExpanded] = useState(false)
   const [showRestTimer, setShowRestTimer] = useState(false)
@@ -221,10 +251,13 @@ function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle 
 
   const handleSetComplete = useCallback((setIndex) => {
     logExerciseSet(workoutId, exercise.id, setIndex, { completed: true })
-    setShowRestTimer(true)
-    setRestSeconds(exercise.rest || 60)
+    // Only show rest timer for working sets (not warmup/cooldown)
+    if (isWorkingSet) {
+      setShowRestTimer(true)
+      setRestSeconds(exercise.rest || 60)
+    }
     onActivate()
-  }, [workoutId, exercise.id, logExerciseSet, exercise.rest, onActivate])
+  }, [workoutId, exercise.id, logExerciseSet, exercise.rest, onActivate, isWorkingSet])
 
   const handleSetLog = useCallback((setIndex, data) => {
     logExerciseSet(workoutId, exercise.id, setIndex, data)
@@ -234,6 +267,10 @@ function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle 
     setRestSeconds(exercise.rest || 60)
     setShowRestTimer(true)
   }
+
+  const handleLockedAttempt = useCallback(() => {
+    // Show advisory — handled at parent level via state
+  }, [])
 
   // Initialize sets array
   const setsArray = Array.from({ length: exercise.sets }, (_, i) =>
@@ -256,7 +293,6 @@ function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle 
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* Completed sets count */}
           <span className="text-xs text-text-muted">
             {setsArray.filter(s => s.completed).length}/{exercise.sets}
           </span>
@@ -264,8 +300,8 @@ function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle 
         </div>
       </button>
 
-      {/* Rest timer */}
-      {showRestTimer && (
+      {/* Rest timer — only shown for working sets */}
+      {showRestTimer && isWorkingSet && (
         <RestTimer
           restSeconds={restSeconds}
           onSkip={() => setShowRestTimer(false)}
@@ -299,9 +335,12 @@ function ExerciseCard({ exercise, workoutId, isActive, onActivate, sectionTitle 
               set={set}
               exercise={exercise}
               isActive={isActive}
+              isLocked={isLocked}
+              isWorkingSet={isWorkingSet}
               onComplete={() => handleSetComplete(i)}
               onLog={(data) => handleSetLog(i, data)}
               lastPerformance={lastPerf}
+              onLockedAttempt={handleLockedAttempt}
             />
           ))}
         </div>
@@ -326,17 +365,18 @@ export default function WorkoutDetail() {
   } = useStore()
 
   const workout = workouts.find(w => w.id === id)
-  const [expandedExercises, setExpandedExercises] = useState({})
   const [showNote, setShowNote] = useState(false)
   const [showSkipConfirm, setShowSkipConfirm] = useState(false)
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [isRunning, setIsRunning] = useState(false)
+  const [showLockedAdvisory, setShowLockedAdvisory] = useState(false)
   const timerRef = useRef(null)
 
   const isActive = activeSession?.workoutId === workout?.id
   const isCompleted = workout?.status === 'completed'
   const isSkipped = workout?.status === 'skipped'
+  const isLocked = !isActive && workout?.status === 'generated'
 
   // Restore timer on mount
   useEffect(() => {
@@ -404,6 +444,10 @@ export default function WorkoutDetail() {
     navigate('/home')
   }
 
+  const handleLockedAttempt = useCallback(() => {
+    setShowLockedAdvisory(true)
+  }, [])
+
   if (!workout || !workout.generatedWorkout) {
     return (
       <div className="min-h-screen bg-bg flex items-center justify-center">
@@ -433,6 +477,14 @@ export default function WorkoutDetail() {
 
   return (
     <div className="min-h-screen bg-bg pb-32">
+      {/* Advisory toast */}
+      {showLockedAdvisory && (
+        <AdvisoryToast
+          message="Press 'Start Workout' first to begin tracking your sets."
+          onClose={() => setShowLockedAdvisory(false)}
+        />
+      )}
+
       {/* Sticky header */}
       <div className="bg-surface border-b border-border px-4 py-3 sticky top-0 z-20">
         <div className="max-w-lg mx-auto">
@@ -491,6 +543,14 @@ export default function WorkoutDetail() {
               </div>
             </div>
           )}
+
+          {/* Locked advisory strip */}
+          {isLocked && (
+            <div className="mt-2 flex items-center gap-2 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-3 py-2">
+              <AlertTriangle size={12} className="shrink-0" />
+              <span>Start the workout to track sets and reps</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -504,6 +564,8 @@ export default function WorkoutDetail() {
                 exercise={ex}
                 workoutId={workout.id}
                 isActive={isActive && activeSession?.completedExerciseIds.includes(ex.id)}
+                isLocked={isLocked}
+                isWorkingSet={false}
                 onActivate={() => handleActivateExercise(ex.id)}
                 sectionTitle="warmup"
               />
@@ -519,6 +581,8 @@ export default function WorkoutDetail() {
               exercise={ex}
               workoutId={workout.id}
               isActive={isActive && activeSession?.completedExerciseIds.includes(ex.id)}
+              isLocked={isLocked}
+              isWorkingSet={true}
               onActivate={() => handleActivateExercise(ex.id)}
               sectionTitle="main"
             />
@@ -532,6 +596,8 @@ export default function WorkoutDetail() {
               exercise={finisher}
               workoutId={workout.id}
               isActive={isActive && activeSession?.completedExerciseIds.includes(finisher.id)}
+              isLocked={isLocked}
+              isWorkingSet={true}
               onActivate={() => handleActivateExercise(finisher.id)}
               sectionTitle="finisher"
             />
@@ -547,6 +613,8 @@ export default function WorkoutDetail() {
                 exercise={ex}
                 workoutId={workout.id}
                 isActive={isActive && activeSession?.completedExerciseIds.includes(ex.id)}
+                isLocked={isLocked}
+                isWorkingSet={false}
                 onActivate={() => handleActivateExercise(ex.id)}
                 sectionTitle="cooldown"
               />
