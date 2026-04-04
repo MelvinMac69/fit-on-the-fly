@@ -4,57 +4,84 @@ import {
   COOLDOWN_POOL,
   FINISHER_POOL,
   EQUIPMENT_TYPES,
+  getRestDuration,
 } from '../data/exercises.js'
 
 // ─── Equipment hierarchy ───────────────────────────────────────────────────────
-// full_gym: everything
-// hotel_gym: no barbells, no hack squat; includes dumbbells, machines, cables
-// dumbbells: dumbbells + bodyweight
-// bodyweight: bodyweight only
-// none: no equipment
 const EQUIPMENT_HIERARCHY = {
   [EQUIPMENT_TYPES.NONE]: ['none'],
-  [EQUIPMENT_TYPES.BODYWEIGHT]: ['none', 'bodyweight'],
-  [EQUIPMENT_TYPES.DUMBBELLS]: ['none', 'bodyweight', 'dumbbells'],
-  [EQUIPMENT_TYPES.HOTEL_GYM]: ['none', 'bodyweight', 'dumbbells', 'hotel_gym'],
-  [EQUIPMENT_TYPES.FULL_GYM]: ['none', 'bodyweight', 'dumbbells', 'hotel_gym', 'full_gym'],
+  [EQUIPMENT_TYPES.DUMBBELLS]: ['none', 'dumbbells'],
+  [EQUIPMENT_TYPES.HOTEL_GYM]: ['none', 'dumbbells', 'hotel_gym'],
+  [EQUIPMENT_TYPES.FULL_GYM]: ['none', 'dumbbells', 'hotel_gym', 'full_gym'],
 }
 
-// ─── Equipment scoring ────────────────────────────────────────────────────────
-// When user selects equipment X, exercises tagged exactly with X score highest.
-// Each step down in hierarchy gets a lower bonus.
-// full_gym (5): +100 for full_gym, +60 for hotel_gym, +30 for dumbbells, +10 for bodyweight, 0 for none
-// hotel_gym (4): +100 for hotel_gym, +50 for dumbbells, +20 for bodyweight, 0 for none
-// dumbbells (3): +100 for dumbbells, +40 for bodyweight, 0 for none
-// bodyweight (2): +100 for bodyweight, +20 for none
-// none (1): +100 for none
-const EQUIPMENT_SCORE_BONUS = {
-  [EQUIPMENT_TYPES.NONE]: { none: 100, bodyweight: 0, dumbbells: 0, hotel_gym: 0, full_gym: 0 },
-  [EQUIPMENT_TYPES.BODYWEIGHT]: { none: 20, bodyweight: 100, dumbbells: 0, hotel_gym: 0, full_gym: 0 },
-  [EQUIPMENT_TYPES.DUMBBELLS]: { none: 0, bodyweight: 40, dumbbells: 100, hotel_gym: 0, full_gym: 0 },
-  [EQUIPMENT_TYPES.HOTEL_GYM]: { none: 0, bodyweight: 20, dumbbells: 50, hotel_gym: 100, full_gym: 0 },
-  [EQUIPMENT_TYPES.FULL_GYM]: { none: 0, bodyweight: 10, dumbbells: 30, hotel_gym: 60, full_gym: 100 },
+// Equipment score bonus — exact match scores highest
+// full_gym → +100 barbell/full, +60 hotel, +30 dumbbells, +10 none
+const EQUIP_SCORE = {
+  [EQUIPMENT_TYPES.NONE]: { none: 100, dumbbells: 0, hotel_gym: 0, full_gym: 0 },
+  [EQUIPMENT_TYPES.DUMBBELLS]: { none: 20, dumbbells: 100, hotel_gym: 0, full_gym: 0 },
+  [EQUIPMENT_TYPES.HOTEL_GYM]: { none: 10, dumbbells: 60, hotel_gym: 100, full_gym: 0 },
+  [EQUIPMENT_TYPES.FULL_GYM]: { none: 5, dumbbells: 30, hotel_gym: 60, full_gym: 100 },
 }
 
-// ─── Muscle group tags ─────────────────────────────────────────────────────────
-const PUSH_MUSCLES = new Set(['chest', 'shoulders', 'triceps'])
-const PULL_MUSCLES = new Set(['back', 'biceps', 'upper_back'])
-const LEGS_MUSCLES = new Set(['quads', 'hamstrings', 'glutes', 'calves'])
-const CORE_MUSCLES = new Set(['core'])
-const CARDIO_MUSCLES = new Set(['cardiovascular'])
-
+// ─── Muscle group categories ───────────────────────────────────────────────────
 function getMuscleCategory(muscleGroups) {
   const groups = new Set(muscleGroups)
-  if ([...groups].every(g => CARDIO_MUSCLES.has(g))) return 'cardio'
-  if ([...groups].some(g => PUSH_MUSCLES.has(g))) return 'push'
-  if ([...groups].some(g => PULL_MUSCLES.has(g))) return 'pull'
-  if ([...groups].some(g => LEGS_MUSCLES.has(g))) return 'legs'
-  if ([...groups].some(g => CORE_MUSCLES.has(g))) return 'core'
+  if (groups.has('cardiovascular')) return 'cardio'
+  if (groups.has('chest') || groups.has('shoulders') || groups.has('triceps')) return 'push'
+  if (groups.has('back') || groups.has('biceps') || groups.has('upper_back')) return 'pull'
+  if (groups.has('quads') || groups.has('hamstrings') || groups.has('glutes') || groups.has('calves')) return 'legs'
+  if (groups.has('core') || groups.has('lower_back')) return 'core'
   return 'full_body'
 }
 
-// ─── Training split ────────────────────────────────────────────────────────────
-// Maps each split type to the muscle categories it should include
+// ─── Training split rotations ─────────────────────────────────────────────────
+// These are ordered sequences — the app picks the next split in the rotation
+// after each completed workout, and avoids back-to-back same-muscle sessions
+const SPLIT_ROTATIONS = {
+  // Fat loss: high frequency, full-body and conditioning, quick sessions
+  fat_loss: {
+    default: ['full', 'conditioning', 'full', 'conditioning', 'full'],
+    equipment: {
+      [EQUIPMENT_TYPES.NONE]: ['conditioning', 'full', 'conditioning'],
+      [EQUIPMENT_TYPES.DUMBBELLS]: ['full', 'conditioning', 'full'],
+      [EQUIPMENT_TYPES.HOTEL_GYM]: ['full', 'cardio', 'full', 'cardio'],
+      [EQUIPMENT_TYPES.FULL_GYM]: ['push', 'pull', 'legs', 'conditioning'],
+    },
+  },
+  // Muscle gain: traditional push/pull/legs split
+  muscle_gain: {
+    default: ['push', 'pull', 'legs', 'push', 'pull'],
+    equipment: {
+      [EQUIPMENT_TYPES.NONE]: ['full', 'full', 'conditioning'],
+      [EQUIPMENT_TYPES.DUMBBELLS]: ['push', 'pull', 'legs', 'push'],
+      [EQUIPMENT_TYPES.HOTEL_GYM]: ['push', 'pull', 'legs', 'push'],
+      [EQUIPMENT_TYPES.FULL_GYM]: ['push', 'pull', 'legs', 'push', 'pull'],
+    },
+  },
+  // Maintain: balanced
+  maintain: {
+    default: ['upper', 'legs', 'full', 'upper', 'conditioning'],
+    equipment: {
+      [EQUIPMENT_TYPES.NONE]: ['full', 'conditioning', 'full'],
+      [EQUIPMENT_TYPES.DUMBBELLS]: ['upper', 'legs', 'full', 'upper'],
+      [EQUIPMENT_TYPES.HOTEL_GYM]: ['upper', 'legs', 'full', 'cardio'],
+      [EQUIPMENT_TYPES.FULL_GYM]: ['push', 'pull', 'legs', 'upper', 'full'],
+    },
+  },
+  // General health: varied, accessible
+  general_health: {
+    default: ['full', 'conditioning', 'upper', 'legs', 'full'],
+    equipment: {
+      [EQUIPMENT_TYPES.NONE]: ['full', 'conditioning', 'full'],
+      [EQUIPMENT_TYPES.DUMBBELLS]: ['full', 'upper', 'conditioning'],
+      [EQUIPMENT_TYPES.HOTEL_GYM]: ['full', 'cardio', 'upper', 'legs'],
+      [EQUIPMENT_TYPES.FULL_GYM]: ['push', 'pull', 'legs', 'full', 'conditioning'],
+    },
+  },
+}
+
+// Map split types to the muscle categories they exercise
 const SPLIT_MUSCLES = {
   push: ['push', 'core'],
   pull: ['pull', 'core'],
@@ -64,11 +91,14 @@ const SPLIT_MUSCLES = {
   conditioning: ['cardio', 'core', 'legs'],
 }
 
-const GOAL_SPLITS = {
-  fat_loss: ['full', 'conditioning', 'full', 'conditioning', 'full'],
-  muscle_gain: ['push', 'pull', 'legs', 'push', 'pull'],
-  maintain: ['upper', 'legs', 'full', 'upper', 'conditioning'],
-  general_health: ['full', 'conditioning', 'full', 'upper', 'legs'],
+// Split display names
+const SPLIT_NAMES = {
+  push: 'Push Day',
+  pull: 'Pull Day',
+  legs: 'Legs & Core',
+  upper: 'Upper Body',
+  full: 'Full Body',
+  conditioning: 'Conditioning',
 }
 
 // ─── Time config ───────────────────────────────────────────────────────────────
@@ -86,129 +116,148 @@ const ENERGY_ADJUST = {
   high: { repMult: 1.15, setMult: 1.0, intensity: 1.1 },
 }
 
-// ─── Recent exercise tracking ─────────────────────────────────────────────────
-const recentExerciseIds = []
-const recentSplitTypes = [] // last N workout split types
+// ─── Smart split picker ───────────────────────────────────────────────────────
+function getNextSplit(workouts, goal, equipment) {
+  const goalSplits = SPLIT_ROTATIONS[goal] || SPLIT_ROTATIONS.maintain
+  // Use equipment-specific rotation if available
+  const rotation = goalSplits.equipment?.[equipment] || goalSplits.default
 
-function getRecommendedSplit(workouts, goal) {
-  const goalRotation = GOAL_SPLITS[goal] || GOAL_SPLITS.maintain
-
-  // Find the most recent completed workout
-  const completedWorkouts = workouts
-    .filter(w => w.status === 'completed' && w.splitType)
+  // Get last completed workout split type
+  const completed = workouts
+    .filter(w => w.status === 'completed' && w.generatedWorkout?.splitType)
     .sort((a, b) => new Date(b.date) - new Date(a.date))
 
-  const lastWorkout = completedWorkouts[0]
-  const lastSplit = lastWorkout?.splitType || null
+  const lastWorkout = completed[0]
+  const lastSplit = lastWorkout?.generatedWorkout?.splitType || null
 
-  if (!lastSplit) {
-    // First workout — use the first rotation item
-    return goalRotation[0]
+  // Check how many days since last workout
+  let daysSince = 99
+  if (lastWorkout?.date) {
+    daysSince = Math.round((Date.now() - new Date(lastWorkout.date)) / (1000 * 60 * 60 * 24))
   }
 
-  // Find where lastSplit appears in rotation and pick the next one
-  const lastIdx = goalRotation.indexOf(lastSplit)
-  const nextIdx = (lastIdx + 1) % goalRotation.length
-  const nextSplit = goalRotation[nextIdx]
+  if (!lastSplit) {
+    // First workout ever — start with 'full' or first rotation item
+    return rotation[0]
+  }
 
-  // If only 1 day has passed since last workout, don't repeat the same split
-  if (lastWorkout && lastSplit === nextSplit) {
-    return goalRotation[(lastIdx + 2) % goalRotation.length]
+  // If more than 4 days missed, reset rotation to start fresh
+  // This prevents forcing the user through a rigid cycle after a break
+  if (daysSince > 4) {
+    return rotation[0]
+  }
+
+  // Find last split position in rotation and advance
+  const lastIdx = rotation.indexOf(lastSplit)
+  if (lastIdx === -1) return rotation[0]
+
+  const nextIdx = (lastIdx + 1) % rotation.length
+  let nextSplit = rotation[nextIdx]
+
+  // If we'd repeat the same split (only one item in rotation or odd-length)
+  if (nextSplit === lastSplit) {
+    nextSplit = rotation[(lastIdx + 2) % rotation.length]
+  }
+
+  // If the same muscle was hit yesterday (consecutive), skip to different one
+  const lastMuscles = SPLIT_MUSCLES[lastSplit] || []
+  const nextMuscles = SPLIT_MUSCLES[nextSplit] || []
+  const overlap = lastMuscles.some(m => nextMuscles.includes(m))
+
+  if (overlap && rotation.length > 1) {
+    const altIdx = (lastIdx + 2) % rotation.length
+    const altSplit = rotation[altIdx]
+    if (altSplit !== lastSplit) nextSplit = altSplit
   }
 
   return nextSplit
 }
 
 // ─── Exercise selection ────────────────────────────────────────────────────────
-function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count) {
-  const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || EQUIPMENT_HIERARCHY[EQUIPMENT_TYPES.FULL_GYM]
-  const targetMuscles = SPLIT_MUSCLES[splitType] || SPLIT_MUSCLES.full
-  const equipmentBonus = EQUIPMENT_SCORE_BONUS[equipment] || {}
+const recentExerciseIds = []
 
-  // Filter: exercise must be doable with available equipment and appropriate difficulty
+function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count) {
+  const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
+  const targetMuscles = SPLIT_MUSCLES[splitType] || SPLIT_MUSCLES.full
+  const eqScore = EQUIP_SCORE[equipment] || {}
+
   let candidates = EXERCISES.filter(ex =>
     ex.equipment.some(eq => allowedEquipment.includes(eq)) &&
     ex.difficulty.includes(fitnessLevel)
   )
 
-  // Score each candidate
   candidates = candidates.map(ex => {
     let score = 0
 
-    // 1. Equipment match bonus (strongest factor)
-    const exactEquipment = ex.equipment[0] // primary equipment tag
-    score += equipmentBonus[exactEquipment] || 0
+    // 1. Equipment match (strongest factor)
+    const primaryEq = ex.equipment[0]
+    score += eqScore[primaryEq] || 0
 
     // 2. Split/muscle group match
     const muscleCat = getMuscleCategory(ex.muscleGroups)
     if (targetMuscles.includes(muscleCat)) {
-      score += 50
-    } else if (muscleCat === 'full_body') {
+      score += 60
+    } else if (muscleCat === 'full_body' || muscleCat === 'cardio') {
       score += 20
     }
 
-    // 3. Penalize recently used exercises
-    if (recentExerciseIds.includes(ex.id)) {
-      score -= 60
-    }
+    // 3. Penalize recently used
+    if (recentExerciseIds.includes(ex.id)) score -= 70
 
-    // 4. Goal bias: strength type for muscle_gain, conditioning for fat_loss
-    if (goal === 'muscle_gain' && ex.type === 'strength') score += 20
-    if (goal === 'fat_loss' && ex.type === 'conditioning') score += 20
+    // 4. Goal bias
+    if (goal === 'muscle_gain' && ex.type === 'strength') score += 15
+    if (goal === 'fat_loss' && ex.type === 'conditioning') score += 15
 
     return { ...ex, _score: score, _muscleCategory: muscleCat }
   })
 
   candidates.sort((a, b) => b._score - a._score)
 
-  // Pick exercises, cycling through target muscle categories to ensure balance
+  // Pick exercises, cycling through target muscle groups for balance
   const picked = []
-  let muscleIndex = 0
+  let muscleIdx = 0
 
   for (let i = 0; i < count && candidates.length > 0; i++) {
-    const target = targetMuscles[muscleIndex % targetMuscles.length]
+    const target = targetMuscles[muscleIdx % targetMuscles.length]
+    const targetSet = new Set(targetMuscles)
 
-    // Try to find a candidate matching the target muscle category
     let idx = candidates.findIndex(ex =>
       !picked.includes(ex.id) &&
-      (ex._muscleCategory === target || ex._muscleCategory === 'full_body' || target === 'conditioning')
+      (ex._muscleCategory === target || ex._muscleCategory === 'full_body' || targetSet.has('cardio'))
     )
 
-    // Fallback: take the highest scoring remaining
     if (idx === -1) {
       idx = candidates.findIndex(ex => !picked.includes(ex.id))
     }
-
     if (idx === -1) break
+
     const exercise = candidates[idx]
     picked.push(exercise)
     candidates.splice(idx, 1)
-    muscleIndex++
+    muscleIdx++
   }
 
-  // Track recent
   picked.forEach(ex => {
     if (!recentExerciseIds.includes(ex.id)) {
       recentExerciseIds.push(ex.id)
-      if (recentExerciseIds.length > 16) recentExerciseIds.shift()
+      if (recentExerciseIds.length > 18) recentExerciseIds.shift()
     }
   })
 
   return picked
 }
 
-function buildExercise(exercise, energy, timeConfig) {
+function buildExercise(exercise, energy, timeConfig, workoutGoal) {
   const adj = ENERGY_ADJUST[energy] || ENERGY_ADJUST.medium
   const isTimeBased = exercise.defaultDuration !== undefined
   const isRepBased = exercise.defaultReps !== undefined
 
-  let reps, rest
-
+  let reps
   if (isRepBased) {
-    reps = Math.round((exercise.defaultReps[energy] || exercise.defaultReps.intermediate) * adj.repMult)
+    reps = Math.round((exercise.defaultReps[energy] || 10) * adj.repMult)
   }
 
-  rest = timeConfig.rest
+  const rest = getRestDuration(exercise.id, exercise.type, energy)
 
   return {
     id: exercise.id,
@@ -219,20 +268,22 @@ function buildExercise(exercise, energy, timeConfig) {
     rest,
     tip: exercise.tip,
     equipment: exercise.equipment[0],
+    type: exercise.type,
   }
 }
 
 function pickWarmup(equipment) {
-  const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
+  const allowed = EQUIPMENT_HIERARCHY[equipment] || ['none']
   const candidates = WARMUP_POOL.filter(w =>
-    w.equipment.some(eq => allowedEquipment.includes(eq))
+    w.equipment.some(eq => allowed.includes(eq))
   )
   const count = 3
   const picked = []
-  for (let i = 0; i < count && candidates.length > 0; i++) {
-    const idx = Math.floor(Math.random() * candidates.length)
-    picked.push(candidates[idx])
-    candidates.splice(idx, 1)
+  const pool = [...candidates]
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    picked.push(pool[idx])
+    pool.splice(idx, 1)
   }
   return picked.map(w => ({
     id: w.id,
@@ -247,16 +298,17 @@ function pickWarmup(equipment) {
 }
 
 function pickCooldown(equipment) {
-  const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
+  const allowed = EQUIPMENT_HIERARCHY[equipment] || ['none']
   const candidates = COOLDOWN_POOL.filter(c =>
-    c.equipment.some(eq => allowedEquipment.includes(eq))
+    c.equipment.some(eq => allowed.includes(eq))
   )
   const count = 2
   const picked = []
-  for (let i = 0; i < count && candidates.length > 0; i++) {
-    const idx = Math.floor(Math.random() * candidates.length)
-    picked.push(candidates[idx])
-    candidates.splice(idx, 1)
+  const pool = [...candidates]
+  for (let i = 0; i < count && pool.length > 0; i++) {
+    const idx = Math.floor(Math.random() * pool.length)
+    picked.push(pool[idx])
+    pool.splice(idx, 1)
   }
   return picked.map(c => ({
     id: c.id,
@@ -273,9 +325,9 @@ function pickCooldown(equipment) {
 function maybeAddFinisher(equipment, energy, timeAvailable) {
   if (timeAvailable < 20 || energy === 'low') return null
 
-  const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
+  const allowed = EQUIPMENT_HIERARCHY[equipment] || ['none']
   const candidates = FINISHER_POOL.filter(f =>
-    f.equipment.some(eq => allowedEquipment.includes(eq))
+    f.equipment.some(eq => allowed.includes(eq))
   )
   if (candidates.length === 0) return null
 
@@ -308,23 +360,6 @@ function maybeAddFinisher(equipment, energy, timeAvailable) {
 }
 
 function generateWorkoutName(equipment, splitType, timeAvailable) {
-  const equipmentNames = {
-    [EQUIPMENT_TYPES.NONE]: 'No-Equipment',
-    [EQUIPMENT_TYPES.BODYWEIGHT]: 'Bodyweight',
-    [EQUIPMENT_TYPES.DUMBBELLS]: 'Dumbbell',
-    [EQUIPMENT_TYPES.HOTEL_GYM]: 'Hotel Gym',
-    [EQUIPMENT_TYPES.FULL_GYM]: 'Full Gym',
-  }
-
-  const splitNames = {
-    push: 'Push Day',
-    pull: 'Pull Day',
-    legs: 'Legs & Core',
-    upper: 'Upper Body',
-    full: 'Full Body',
-    conditioning: 'Conditioning',
-  }
-
   const timeNames = {
     10: 'Quick 10',
     20: 'Express',
@@ -332,25 +367,21 @@ function generateWorkoutName(equipment, splitType, timeAvailable) {
     45: 'Extended',
     60: 'Full Session',
   }
-
-  return `${timeNames[timeAvailable] || `${timeAvailable}min`} ${splitNames[splitType] || 'Workout'}`
+  return `${timeNames[timeAvailable] || `${timeAvailable}min`} ${SPLIT_NAMES[splitType] || 'Workout'}`
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
 export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel, goal, workouts = [] }) {
   const timeConfig = TIME_CONFIG[timeAvailable] || TIME_CONFIG[30]
   const exerciseCount = timeConfig.exerciseCount
-
-  // Determine today's split based on recent history + goal
-  const splitType = getRecommendedSplit(workouts, goal)
+  const splitType = getNextSplit(workouts, goal, equipment)
 
   const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount)
-  const mainWorkout = exercisePool.map(ex => buildExercise(ex, energy, timeConfig))
+  const mainWorkout = exercisePool.map(ex => buildExercise(ex, energy, timeConfig, goal))
   const warmup = pickWarmup(equipment)
   const cooldown = pickCooldown(equipment)
   const finisher = maybeAddFinisher(equipment, energy, timeAvailable)
 
-  // Estimate total time
   const warmupTime = warmup.reduce((sum, w) => sum + (w.duration || 30), 0)
   const mainTime = mainWorkout.reduce((sum, ex) => {
     const workTime = ex.reps ? ex.reps * 3 : ex.duration || 0
@@ -360,12 +391,6 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
   const finisherTime = finisher ? (finisher.duration || finisher.reps * 3) : 0
   const cooldownTime = cooldown.reduce((sum, c) => sum + (c.duration || 30), 0)
   const estimatedMinutes = Math.ceil((warmupTime + mainTime + finisherTime + cooldownTime) / 60)
-
-  // Track this split
-  if (!recentSplitTypes.includes(splitType)) {
-    recentSplitTypes.push(splitType)
-    if (recentSplitTypes.length > 6) recentSplitTypes.shift()
-  }
 
   return {
     name: generateWorkoutName(equipment, splitType, timeAvailable),
@@ -380,5 +405,6 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
 
 export function resetWorkoutGenerator() {
   recentExerciseIds.length = 0
-  recentSplitTypes.length = 0
 }
+
+export { SPLIT_NAMES }
