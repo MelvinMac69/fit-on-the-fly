@@ -414,7 +414,7 @@ function generateWorkoutName(equipment, splitType, timeAvailable) {
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel, goal, workouts = [], forcedExerciseIds = null }) {
+export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel, goal, workouts = [], forcedExerciseIds = null, exerciseLogs = {}, exerciseSwaps = {} }) {
   const timeConfig = TIME_CONFIG[timeAvailable] || TIME_CONFIG[30]
   const exerciseCount = timeConfig.exerciseCount
   const splitType = getNextSplit(workouts, goal, equipment)
@@ -427,7 +427,42 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
   const prevSameSplitExerciseIds = completedSameSplit[0]?.generatedWorkout?.main?.map(ex => ex.id) || []
 
   const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount, prevSameSplitExerciseIds, forcedExerciseIds)
-  const mainWorkout = exercisePool.map(ex => buildExercise(ex, energy, timeConfig, goal))
+
+  // Helper: find the last weight/reps for an exercise from completed workouts (respects swaps)
+  const completedWorkouts = workouts
+    .filter(w => w.status === 'completed')
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+
+  const getLastWeightReps = (exerciseId) => {
+    // Check if this exercise was swapped from another
+    const swappedFrom = Object.entries(exerciseSwaps).find(([, to]) => to === exerciseId)?.[0]
+    const searchIds = swappedFrom ? [exerciseId, swappedFrom] : [exerciseId]
+
+    for (const wid of completedWorkouts.map(w => w.id)) {
+      const log = exerciseLogs?.[wid]
+      for (const eid of searchIds) {
+        const entry = log?.[eid]
+        if (entry?.sets) {
+          const completedSets = entry.sets.filter(s => s.completed && (s.weight > 0 || s.reps > 0))
+          if (completedSets.length > 0) {
+            const bestWeight = Math.max(...completedSets.map(s => s.weight || 0))
+            const bestReps = Math.max(...completedSets.filter(s => s.weight === bestWeight).map(s => s.reps || 0))
+            if (bestWeight > 0) return { weight: bestWeight, reps: bestReps }
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  const mainWorkout = exercisePool.map(ex => {
+    const built = buildExercise(ex, energy, timeConfig, goal)
+    const last = getLastWeightReps(ex.id)
+    if (last) {
+      built.sets = Array.from({ length: built.sets }, () => ({ weight: last.weight, reps: last.reps, completed: false }))
+    }
+    return built
+  })
   const warmup = pickWarmup(equipment)
   const cooldown = pickCooldown(equipment)
   const finisher = maybeAddFinisher(equipment, energy, timeAvailable)

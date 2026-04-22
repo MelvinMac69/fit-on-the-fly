@@ -231,6 +231,8 @@ export const useStore = create((set, get) => ({
       goal: user.goal,
       workouts: get().workouts,
       forcedExerciseIds,
+      exerciseLogs: get().exerciseLogs,
+      exerciseSwaps: stored?.swaps || {},
     })
 
     // First time generating this split — store the exercise IDs for next time
@@ -273,6 +275,25 @@ export const useStore = create((set, get) => ({
     delete splitWorkouts[splitType]
     saveToStorage(STORAGE_KEYS.SPLIT_WORKOUTS, splitWorkouts)
     set({ splitWorkouts })
+  },
+
+  // Record that user swapped one exercise for another in a specific split
+  // This ensures future generations of that split use the swapped exercise
+  swapExercise: (splitType, fromExerciseId, toExerciseId) => {
+    const existing = get().splitWorkouts?.[splitType] || {}
+    const swaps = { ...(existing.swaps || {}), [fromExerciseId]: toExerciseId }
+    const updated = {
+      ...get().splitWorkouts,
+      [splitType]: { ...existing, swaps },
+    }
+    saveToStorage(STORAGE_KEYS.SPLIT_WORKOUTS, updated)
+    set({ splitWorkouts: updated })
+  },
+
+  // Get the effective exercise ID for a split (resolves swaps)
+  getEffectiveExerciseId: (splitType, exerciseId) => {
+    const swaps = get().splitWorkouts?.[splitType]?.swaps || {}
+    return swaps[exerciseId] || exerciseId
   },
 
   // ─── Active Session ──────────────────────────────────────────────────────
