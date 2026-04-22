@@ -176,7 +176,7 @@ function getNextSplit(workouts, goal, equipment) {
 // ─── Exercise selection ────────────────────────────────────────────────────────
 const recentExerciseIds = []
 
-function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count) {
+function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count, prevSameSplitExerciseIds = []) {
   const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
   const targetMuscles = SPLIT_MUSCLES[splitType] || SPLIT_MUSCLES.full
   const eqScore = EQUIP_SCORE[equipment] || {}
@@ -201,10 +201,17 @@ function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, 
       score += 20
     }
 
-    // 3. Penalize recently used
-    if (recentExerciseIds.includes(ex.id)) score -= 70
+    // 3. Strongly prefer exercises from the same split last time (carries forward weight/rep history)
+    if (prevSameSplitExerciseIds.includes(ex.id)) {
+      score += 500
+    }
 
-    // 4. Goal bias
+    // 4. Penalize recently used (only for exercises NOT from the same split)
+    if (recentExerciseIds.includes(ex.id) && !prevSameSplitExerciseIds.includes(ex.id)) {
+      score -= 70
+    }
+
+    // 5. Goal bias
     if (goal === 'muscle_gain' && ex.type === 'strength') score += 15
     if (goal === 'fat_loss' && ex.type === 'conditioning') score += 15
 
@@ -376,7 +383,14 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
   const exerciseCount = timeConfig.exerciseCount
   const splitType = getNextSplit(workouts, goal, equipment)
 
-  const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount)
+  // Find exercises from the most recent completed workout with the same split type
+  // This ensures the same exercises are picked each week → weight/rep history carries forward
+  const completedSameSplit = workouts
+    .filter(w => w.status === 'completed' && w.generatedWorkout?.splitType === splitType)
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+  const prevSameSplitExerciseIds = completedSameSplit[0]?.generatedWorkout?.main?.map(ex => ex.id) || []
+
+  const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount, prevSameSplitExerciseIds)
   const mainWorkout = exercisePool.map(ex => buildExercise(ex, energy, timeConfig, goal))
   const warmup = pickWarmup(equipment)
   const cooldown = pickCooldown(equipment)
