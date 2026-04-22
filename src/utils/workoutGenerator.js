@@ -117,7 +117,7 @@ const ENERGY_ADJUST = {
 }
 
 // ─── Smart split picker ───────────────────────────────────────────────────────
-function getNextSplit(workouts, goal, equipment) {
+export function getNextSplit(workouts, goal, equipment) {
   const goalSplits = SPLIT_ROTATIONS[goal] || SPLIT_ROTATIONS.maintain
   // Use equipment-specific rotation if available
   const rotation = goalSplits.equipment?.[equipment] || goalSplits.default
@@ -176,7 +176,7 @@ function getNextSplit(workouts, goal, equipment) {
 // ─── Exercise selection ────────────────────────────────────────────────────────
 const recentExerciseIds = []
 
-function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count, prevSameSplitExerciseIds = []) {
+function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, count, prevSameSplitExerciseIds = [], forcedExerciseIds = null) {
   const allowedEquipment = EQUIPMENT_HIERARCHY[equipment] || ['none']
   const targetMuscles = SPLIT_MUSCLES[splitType] || SPLIT_MUSCLES.full
   const eqScore = EQUIP_SCORE[equipment] || {}
@@ -224,24 +224,60 @@ function pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, 
   const picked = []
   let muscleIdx = 0
 
-  for (let i = 0; i < count && candidates.length > 0; i++) {
-    const target = targetMuscles[muscleIdx % targetMuscles.length]
-    const targetSet = new Set(targetMuscles)
-
-    let idx = candidates.findIndex(ex =>
-      !picked.includes(ex.id) &&
-      (ex._muscleCategory === target || ex._muscleCategory === 'full_body' || targetSet.has('cardio'))
-    )
-
-    if (idx === -1) {
-      idx = candidates.findIndex(ex => !picked.includes(ex.id))
+  // When forcedExerciseIds is provided (from stored split pool), use ONLY those exercises
+  // in the order specified, filtering by equipment/fitnessLevel compatibility
+  if (forcedExerciseIds && forcedExerciseIds.length > 0) {
+    const forcedSet = new Set(forcedExerciseIds)
+    const forcedCandidates = candidates.filter(ex => forcedSet.has(ex.id))
+    // Maintain the order from forcedExerciseIds
+    forcedCandidates.sort((a, b) => forcedExerciseIds.indexOf(a.id) - forcedExerciseIds.indexOf(b.id))
+    const compatibleForced = forcedCandidates.slice(0, count)
+    if (compatibleForced.length > 0) {
+      compatibleForced.forEach(ex => {
+        picked.push(ex)
+        candidates = candidates.filter(c => c.id !== ex.id)
+      })
     }
-    if (idx === -1) break
+    // If we don't have enough from forced pool, fill rest with normal logic
+    if (picked.length < count) {
+      const remainingCount = count - picked.length
+      for (let i = 0; i < remainingCount && candidates.length > 0; i++) {
+        const target = targetMuscles[muscleIdx % targetMuscles.length]
+        const targetSet = new Set(targetMuscles)
+        let idx = candidates.findIndex(ex =>
+          !picked.map(p => p.id).includes(ex.id) &&
+          (ex._muscleCategory === target || ex._muscleCategory === 'full_body' || targetSet.has('cardio'))
+        )
+        if (idx === -1) {
+          idx = candidates.findIndex(ex => !picked.map(p => p.id).includes(ex.id))
+        }
+        if (idx === -1) break
+        const exercise = candidates[idx]
+        picked.push(exercise)
+        candidates.splice(idx, 1)
+        muscleIdx++
+      }
+    }
+  } else {
+    for (let i = 0; i < count && candidates.length > 0; i++) {
+      const target = targetMuscles[muscleIdx % targetMuscles.length]
+      const targetSet = new Set(targetMuscles)
 
-    const exercise = candidates[idx]
-    picked.push(exercise)
-    candidates.splice(idx, 1)
-    muscleIdx++
+      let idx = candidates.findIndex(ex =>
+        !picked.includes(ex.id) &&
+        (ex._muscleCategory === target || ex._muscleCategory === 'full_body' || targetSet.has('cardio'))
+      )
+
+      if (idx === -1) {
+        idx = candidates.findIndex(ex => !picked.includes(ex.id))
+      }
+      if (idx === -1) break
+
+      const exercise = candidates[idx]
+      picked.push(exercise)
+      candidates.splice(idx, 1)
+      muscleIdx++
+    }
   }
 
   picked.forEach(ex => {
@@ -378,7 +414,7 @@ function generateWorkoutName(equipment, splitType, timeAvailable) {
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
-export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel, goal, workouts = [] }) {
+export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel, goal, workouts = [], forcedExerciseIds = null }) {
   const timeConfig = TIME_CONFIG[timeAvailable] || TIME_CONFIG[30]
   const exerciseCount = timeConfig.exerciseCount
   const splitType = getNextSplit(workouts, goal, equipment)
@@ -390,7 +426,7 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
     .sort((a, b) => new Date(b.date) - new Date(a.date))
   const prevSameSplitExerciseIds = completedSameSplit[0]?.generatedWorkout?.main?.map(ex => ex.id) || []
 
-  const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount, prevSameSplitExerciseIds)
+  const exercisePool = pickExercises(equipment, fitnessLevel, goal, timeAvailable, splitType, exerciseCount, prevSameSplitExerciseIds, forcedExerciseIds)
   const mainWorkout = exercisePool.map(ex => buildExercise(ex, energy, timeConfig, goal))
   const warmup = pickWarmup(equipment)
   const cooldown = pickCooldown(equipment)

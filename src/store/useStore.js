@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { generateWorkout } from '../utils/workoutGenerator.js'
+import { generateWorkout, getNextSplit } from '../utils/workoutGenerator.js'
 
 const STORAGE_KEYS = {
   USER: 'fotf_user',
@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   SETTINGS: 'fotf_settings',
   ACTIVE_SESSION: 'fotf_active_session',
   EXERCISE_LOGS: 'fotf_exercise_logs',
+  SPLIT_WORKOUTS: 'fotf_split_workouts',
 }
 
 function loadFromStorage(key, fallback) {
@@ -112,6 +113,10 @@ export const useStore = create((set, get) => ({
   // ─── Workouts ───────────────────────────────────────────────────────────
   workouts: loadFromStorage(STORAGE_KEYS.WORKOUTS, []),
 
+  // Persisted per-split exercise pools — guarantees the same exercises are used
+  // each week for a given split, enabling weight/rep history to carry forward
+  splitWorkouts: loadFromStorage(STORAGE_KEYS.SPLIT_WORKOUTS, {}),
+
   addWorkout: (workoutData) => {
     const workout = {
       ...workoutData,
@@ -211,6 +216,13 @@ export const useStore = create((set, get) => ({
     const user = get().user
     if (!user) return null
 
+    // Determine the split type BEFORE generating
+    const splitType = getNextSplit(get().workouts, user.goal, equipment)
+
+    // Check if we have a stored exercise pool for this split type
+    const stored = get().splitWorkouts?.[splitType]
+    const forcedExerciseIds = stored?.exerciseIds || null
+
     const generated = generateWorkout({
       timeAvailable,
       equipment,
@@ -218,7 +230,22 @@ export const useStore = create((set, get) => ({
       fitnessLevel: user.fitnessLevel,
       goal: user.goal,
       workouts: get().workouts,
+      forcedExerciseIds,
     })
+
+    // First time generating this split — store the exercise IDs for next time
+    if (!stored) {
+      const newSplitWorkouts = {
+        ...get().splitWorkouts,
+        [splitType]: {
+          exerciseIds: generated.main.map(ex => ex.id),
+          equipment,
+          fitnessLevel: user.fitnessLevel,
+        },
+      }
+      saveToStorage(STORAGE_KEYS.SPLIT_WORKOUTS, newSplitWorkouts)
+      set({ splitWorkouts: newSplitWorkouts })
+    }
 
     const workout = {
       id: crypto.randomUUID(),
@@ -239,6 +266,14 @@ export const useStore = create((set, get) => ({
   },
 
   clearCurrentWorkout: () => set({ currentWorkout: null }),
+
+  // Reset a specific split's exercise pool (e.g., after changing equipment)
+  resetSplitWorkout: (splitType) => {
+    const splitWorkouts = { ...get().splitWorkouts }
+    delete splitWorkouts[splitType]
+    saveToStorage(STORAGE_KEYS.SPLIT_WORKOUTS, splitWorkouts)
+    set({ splitWorkouts })
+  },
 
   // ─── Active Session ──────────────────────────────────────────────────────
   activeSession: resumeSessionFromStorage(),
