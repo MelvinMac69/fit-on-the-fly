@@ -125,8 +125,8 @@ function RestTimer({ restSeconds, onSkip, onRestart }) {
 // ─── Set Row Component ─────────────────────────────────────────────────────────
 function SetRow({ setNumber, set, exercise, isActive, isLocked, isWorkingSet, onComplete, onLog, lastPerformance, onLockedAttempt }) {
   const [showInputs, setShowInputs] = useState(false)
-  const [weight, setWeight] = useState(set.weight || '')
-  const [reps, setReps] = useState(set.reps || '')
+  const [weight, setWeight] = useState(set.weight ?? lastPerformance?.weight ?? '')
+  const [reps, setReps] = useState(set.reps ?? lastPerformance?.reps ?? '')
   const [completed, setCompleted] = useState(set.completed || false)
 
   const handleCheckClick = () => {
