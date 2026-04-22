@@ -234,6 +234,7 @@ export const useStore = create((set, get) => ({
       exerciseLogs: get().exerciseLogs,
       exerciseSwaps: stored?.swaps || {},
     })
+    console.debug('[generateTodayWorkout] splitType:', splitType, 'forcedExerciseIds:', forcedExerciseIds, 'completed workouts:', get().workouts.filter(w => w.status === 'completed').length, 'exerciseLogKeys:', Object.keys(get().exerciseLogs || {}))
 
     // First time generating this split — store the exercise IDs for next time
     if (!stored) {

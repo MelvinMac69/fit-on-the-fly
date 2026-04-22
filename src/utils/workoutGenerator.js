@@ -433,9 +433,12 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
     .filter(w => w.status === 'completed')
     .sort((a, b) => new Date(b.date) - new Date(a.date))
 
+  // DEBUG
+  console.debug('[generateWorkout] splitType:', splitType, 'completedWorkouts count:', completedWorkouts.length, 'exerciseLogKeys:', Object.keys(exerciseLogs || {}))
+
   const getLastWeightReps = (exerciseId) => {
     // Check if this exercise was swapped from another
-    const swappedFrom = Object.entries(exerciseSwaps).find(([, to]) => to === exerciseId)?.[0]
+    const swappedFrom = Object.entries(exerciseSwaps || {}).find(([, to]) => to === exerciseId)?.[0]
     const searchIds = swappedFrom ? [exerciseId, swappedFrom] : [exerciseId]
 
     for (const wid of completedWorkouts.map(w => w.id)) {
@@ -447,11 +450,15 @@ export function generateWorkout({ timeAvailable, equipment, energy, fitnessLevel
           if (completedSets.length > 0) {
             const bestWeight = Math.max(...completedSets.map(s => s.weight || 0))
             const bestReps = Math.max(...completedSets.filter(s => s.weight === bestWeight).map(s => s.reps || 0))
-            if (bestWeight > 0) return { weight: bestWeight, reps: bestReps }
+            if (bestWeight > 0) {
+              console.debug('[getLastWeightReps] found for', exerciseId, ':', { weight: bestWeight, reps: bestReps }, 'from wid:', wid, 'eid:', eid)
+              return { weight: bestWeight, reps: bestReps }
+            }
           }
         }
       }
     }
+    console.debug('[getLastWeightReps] null for', exerciseId, 'searchIds:', searchIds, 'completedWids:', completedWorkouts.map(w => w.id))
     return null
   }
 
